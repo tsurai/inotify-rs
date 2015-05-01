@@ -17,6 +17,7 @@ use std::ffi::{
 };
 use std::mem;
 use std::io;
+use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::slice;
@@ -30,6 +31,7 @@ pub type Watch = c_int;
 #[derive(Clone)]
 pub struct INotify {
     pub fd: c_int,
+    watches: Vec<(Watch, String)>,
     events: Vec<Event>,
 }
 
@@ -47,12 +49,13 @@ impl INotify {
             -1 => Err(io::Error::last_os_error()),
             _  => Ok(INotify {
                 fd    : fd,
+                watches: Vec::new(),
                 events: Vec::new(),
             })
         }
     }
 
-    pub fn add_watch(&self, path: &Path, mask: u32) -> io::Result<Watch> {
+    pub fn add_watch(&mut self, path: &Path, mask: u32) -> io::Result<Watch> {
         let wd = unsafe {
             let c_str = try!(CString::new(path.as_os_str().as_bytes()));
 
@@ -65,14 +68,23 @@ impl INotify {
 
         match wd {
             -1 => Err(io::Error::last_os_error()),
-            _  => Ok(wd)
+            _  => {
+                self.watches.push((wd, OsString::from(path).into_string().unwrap()));
+                Ok(wd)
+            }
         }
     }
 
-    pub fn rm_watch(&self, watch: Watch) -> io::Result<()> {
+    pub fn rm_watch(&mut self, watch: Watch) -> io::Result<()> {
         let result = unsafe { ffi::inotify_rm_watch(self.fd, watch) };
         match result {
-            0  => Ok(()),
+            0  => {
+                if let Some(index) = self.watches.iter().position(|&(wd,_)| wd == watch) {
+                    self.watches.remove(index);
+                }
+
+                Ok(())
+            },
             -1 => Err(io::Error::last_os_error()),
             _  => panic!(
                 "unexpected return code from inotify_rm_watch ({})", result)
@@ -172,7 +184,7 @@ impl INotify {
                     "".to_string()
                 };
 
-                self.events.push(Event::new(&*event, name));
+                self.events.push(Event::new(&*event, self.watches.iter().find(|&&(wd,_)| wd == (*event).wd).unwrap().1.clone(), name));
 
                 i += (event_size + (*event).len as usize) as ssize_t;
             }
@@ -192,19 +204,21 @@ impl INotify {
 
 #[derive(Clone, Debug)]
 pub struct Event {
-    pub wd    : i32,
-    pub mask  : u32,
-    pub cookie: u32,
-    pub name  : String,
+    pub wd        : i32,
+    pub mask      : u32,
+    pub cookie    : u32,
+    pub fullname  : String,
+    pub name      : String,
 }
 
 impl Event {
-    fn new(event: &inotify_event, name: String) -> Event {
+    fn new(event: &inotify_event, fullname: String, name: String) -> Event {
         Event {
-            wd    : event.wd,
-            mask  : event.mask,
-            cookie: event.cookie,
-            name  : name,
+            wd        : event.wd,
+            mask      : event.mask,
+            cookie    : event.cookie,
+            fullname  : fullname,
+            name      : name,
         }
     }
 

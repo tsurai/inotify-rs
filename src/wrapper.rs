@@ -17,7 +17,7 @@ use std::ffi::{
 };
 use std::mem;
 use std::io;
-use std::ffi::OsString;
+use std::path::PathBuf;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::slice;
@@ -31,7 +31,7 @@ pub type Watch = c_int;
 #[derive(Clone)]
 pub struct INotify {
     pub fd: c_int,
-    watches: Vec<(Watch, String)>,
+    watches: Vec<(Watch, PathBuf)>,
     events: Vec<Event>,
 }
 
@@ -69,7 +69,7 @@ impl INotify {
         match wd {
             -1 => Err(io::Error::last_os_error()),
             _  => {
-                self.watches.push((wd, OsString::from(path).into_string().unwrap()));
+                self.watches.push((wd, PathBuf::from(path)));
                 Ok(wd)
             }
         }
@@ -207,17 +207,17 @@ pub struct Event {
     pub wd        : i32,
     pub mask      : u32,
     pub cookie    : u32,
-    pub fullname  : String,
+    pub path      : PathBuf,
     pub name      : String,
 }
 
 impl Event {
-    fn new(event: &inotify_event, fullname: String, name: String) -> Event {
+    fn new(event: &inotify_event, path: PathBuf, name: String) -> Event {
         Event {
             wd        : event.wd,
             mask      : event.mask,
             cookie    : event.cookie,
-            fullname  : fullname,
+            path      : path,
             name      : name,
         }
     }

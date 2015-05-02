@@ -184,7 +184,13 @@ impl INotify {
                     "".to_string()
                 };
 
-                self.events.push(Event::new(&*event, self.watches.iter().find(|&&(wd,_)| wd == (*event).wd).unwrap().1.clone(), name));
+                let path = if let Some(p) = self.watches.iter().find(|&&(wd,_)| wd == (*event).wd) {
+                    p.1.clone()
+                } else {
+                    PathBuf::new()
+                };
+
+                self.events.push(Event::new(&*event, path, name));
 
                 i += (event_size + (*event).len as usize) as ssize_t;
             }
